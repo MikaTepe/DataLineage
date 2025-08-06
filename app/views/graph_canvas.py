@@ -1,7 +1,7 @@
 import networkx as nx
 from PyQt5.QtWidgets import QGraphicsView, QGraphicsScene, QGraphicsLineItem, QGraphicsTextItem
 from PyQt5.QtGui import QPen, QFont, QPainter, QColor
-from PyQt5.QtCore import Qt, QTimer, pyqtSignal
+from PyQt5.QtCore import Qt, QTimer, pyqtSignal, QPointF
 
 from app.models.node_types import ELTNode, TableNode, ViewNode, ScriptNode, CTENode, UndefinedNode, GraphNodeMixin
 from app.views.dialogs import InfoDialog
@@ -10,7 +10,6 @@ from app.models.node import Node
 
 class EdgeLine(QGraphicsLineItem):
     """Eine Kante, die sich automatisch an die Bewegung der Knoten anpasst."""
-
     def __init__(self, source_node, dest_node, parent=None):
         super().__init__(parent)
         self.source, self.dest = source_node, dest_node
@@ -30,6 +29,9 @@ class GraphCanvas(QGraphicsView):
     Die Zeichenfläche mit Standard-Panning und der Zoom-Logik.
     """
     node_double_clicked = pyqtSignal(object)
+    # Signal, das gesendet wird, wenn die Hervorhebung zurückgesetzt wird
+    highlighting_cleared = pyqtSignal()
+
     BASE_FONT_SIZE, MIN_FONT_SIZE, MAX_FONT_SIZE = 12, 4, 30
 
     def __init__(self, model, parent=None):
@@ -43,7 +45,9 @@ class GraphCanvas(QGraphicsView):
         self.setRenderHint(QPainter.Antialiasing)
 
         self.node_items = {}
-        self._initial_scale = 1.0  # Initialwert für die Skalierung
+        self._initial_scale = 1.0
+        self._mouse_press_pos = QPointF()
+
         self.node_double_clicked.connect(self.show_info_dialog)
 
     def clear_scene(self):
@@ -86,19 +90,13 @@ class GraphCanvas(QGraphicsView):
 
     def fit_view(self):
         """Passt die Ansicht an den Inhalt an und speichert die ideale Skalierung."""
-        if not self.scene.items():
-            return
-
+        if not self.scene.items(): return
         self.fitInView(self.scene.itemsBoundingRect(), Qt.KeepAspectRatio)
-        self.scale(0.95, 0.95)  # Ein kleiner Rand ist angenehmer
-
-        # Speichere die "perfekte" Skalierung als Referenz für die Zoom-Begrenzung.
+        self.scale(0.95, 0.95)
         self._initial_scale = self.transform().m11()
-
         self._update_node_fonts()
 
     def _update_node_fonts(self):
-        """Passt die Schriftgröße aller Knoten an die aktuelle Zoom-Stufe an."""
         if not self.scene.items(): return
         scale = self.transform().m11()
         font_size = self.BASE_FONT_SIZE / scale
@@ -108,61 +106,82 @@ class GraphCanvas(QGraphicsView):
                 node.set_font_size(int(clamped_font_size))
 
     def resizeEvent(self, event):
-        """Wird aufgerufen, wenn die Fenstergröße geändert wird."""
         super().resizeEvent(event)
         self.fit_view()
 
     def wheelEvent(self, event):
-        """
-        Ermöglicht freies herein- und herauszoomen mit sanften Faktoren.
-        """
+        """Ermöglicht freies Zoomen mit Grenzen."""
         angle = event.angleDelta().y()
-        if angle == 0:
-            return
-
+        if angle == 0: return
         factor = 1.1 if angle > 0 else 1 / 1.1
         current_scale = self.transform().m11()
         new_scale = current_scale * factor
-
-        # Definiere die untere und obere Zoom-Grenze basierend auf der initialen Skalierung.
-        min_allowed_scale = self._initial_scale / 4.0  # Maximal 4x kleiner als der Graph
-        max_allowed_scale = self._initial_scale * 10.0  # Maximal 10x größer zoomen
-
-        # Wende die Begrenzungen an
+        min_allowed_scale = self._initial_scale / 4.0
+        max_allowed_scale = self._initial_scale * 10.0
         if new_scale < min_allowed_scale:
             factor = min_allowed_scale / current_scale
         elif new_scale > max_allowed_scale:
             factor = max_allowed_scale / current_scale
-
         self.scale(factor, factor)
         self._update_node_fonts()
+
+    def mousePressEvent(self, event):
+        """Speichert die Startposition des Klicks."""
+        self._mouse_press_pos = event.pos()
+        super().mousePressEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        """Prüft, ob ein Klick (kein Drag) auf dem Hintergrund stattfand."""
+        if (event.pos() - self._mouse_press_pos).manhattanLength() < 3:
+            item = self.itemAt(event.pos())
+            if item is None:
+                self.clear_highlighting()
+                self.highlighting_cleared.emit() # Signal zum Leeren des Suchfeldes senden
+        super().mouseReleaseEvent(event)
 
     def mouseDoubleClickEvent(self, event):
         """Behandelt den Doppelklick auf einen Knoten."""
         item = self.itemAt(event.pos())
         if isinstance(item, QGraphicsTextItem):
             item = item.parentItem()
-
         if isinstance(item, GraphNodeMixin):
             self.node_double_clicked.emit(item.get_node_id())
         else:
             super().mouseDoubleClickEvent(event)
 
     def show_info_dialog(self, node_id: str):
-        """Öffnet den Info-Dialog mit den Daten aus dem Node-Objekt."""
         node_attrs = self.model.graph.nodes.get(node_id)
         if not node_attrs or 'data' not in node_attrs: return
-
         node_obj: Node = node_attrs['data']
         info = {
-            "Name": node_obj.name,
-            "ID": node_obj.id,
-            "Typ": node_obj.node_type,
-            "Kontext": node_obj.context,
-            "Besitzer": node_obj.owner,
+            "Name": node_obj.name, "ID": node_obj.id, "Typ": node_obj.node_type,
+            "Kontext": node_obj.context, "Besitzer": node_obj.owner,
             "Beschreibung": node_obj.description,
             "Vorgänger": node_obj.predecessors if node_obj.predecessors else "Keine",
             "Nachfolger": node_obj.successors if node_obj.successors else "Keine",
         }
         dialog = InfoDialog(info, self)
         dialog.exec_()
+
+    def highlight_node(self, node_id: str):
+        """Hebt einen einzelnen Knoten hervor."""
+        self.clear_highlighting()
+        highlight_pen = QPen(QColor("#FF007F"), 3, Qt.SolidLine)
+        node_item = self.node_items.get(node_id)
+        if node_item:
+            node_item.setPen(highlight_pen)
+
+    def zoom_to_node(self, node_id: str):
+        """Zentriert die Ansicht und zoomt auf einen bestimmten Knoten."""
+        node_item = self.node_items.get(node_id)
+        if node_item:
+            padding = 50
+            rect = node_item.sceneBoundingRect().adjusted(-padding, -padding, padding, padding)
+            self.fitInView(rect, Qt.KeepAspectRatio)
+            self._update_node_fonts()
+
+    def clear_highlighting(self):
+        """Setzt die Hervorhebung aller Knoten auf den Standard zurück."""
+        default_pen = QPen(Qt.black, 1)
+        for node_item in self.node_items.values():
+            node_item.setPen(default_pen)

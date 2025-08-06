@@ -1,4 +1,3 @@
-# app/views/graph_tab.py
 from PyQt5.QtWidgets import QWidget, QVBoxLayout
 
 from app.models.graph_model import GraphModel
@@ -18,9 +17,10 @@ class GraphTab(QWidget):
 
         # Jeder Tab besitzt eigene Komponenten
         self.model = GraphModel()
-        self.controller = GraphController(self.model)
         self.layout_service = LayoutService()
         self.canvas = GraphCanvas(self.model)
+        # Der Controller benötigt eine Referenz auf den Canvas, um die Hervorhebung zu steuern
+        self.controller = GraphController(self.model, self.canvas)
 
         # Layout für den Tab
         layout = QVBoxLayout(self)
