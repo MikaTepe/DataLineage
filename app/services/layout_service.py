@@ -15,9 +15,9 @@ class LayoutService:
         if getattr(sys, 'frozen', False):
             base_path = sys._MEIPASS
         else:
+            # Geht drei Ebenen nach oben, um vom aktuellen Verzeichnis zum Projekt-Root zu gelangen
             base_path = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-        # Liest die Umgebungsvariable 'OS' oder ermittelt das OS, um den richtigen Ordner zu wählen
         current_os = os.environ.get('OS', platform.system()).lower()
         subfolder = ""
 
@@ -25,6 +25,7 @@ class LayoutService:
             subfolder = "graphviz-win64"
         elif "darwin" in current_os or "mac" in current_os:
             subfolder = "graphviz-macos"
+
         else:
             print(f"WARNUNG: Keine portable Graphviz-Version für {current_os} gebündelt.")
             return None
@@ -54,16 +55,12 @@ class LayoutService:
 
             original_path = os.environ.get('PATH', '')
             os.environ['PATH'] = f"{graphviz_path}{os.pathsep}{original_path}"
-            print(f"INFO: Nutze portable Graphviz-Version für '{os.environ.get('OS', platform.system())}'")
 
-            # Das 'rankdir'-Attribut wird direkt auf dem Graphen gesetzt,
-            # bevor das Layout berechnet wird.
+            print(f"INFO: Nutze portable Graphviz-Version für '{platform.system()}'")
+
             graph.graph['graph'] = {'rankdir': 'LR'}
-
-            # Der fehlerhafte 'args'-Parameter wird entfernt.
             pos = graphviz_layout(graph, prog='dot')
 
-            # Den ursprünglichen PATH wiederherstellen
             os.environ['PATH'] = original_path
 
             print("INFO: Horizontales hierarchisches Layout erfolgreich berechnet.")

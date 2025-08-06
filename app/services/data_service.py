@@ -36,7 +36,12 @@ class DataService:
 
         print(f"INFO: Graph-Anforderung für '{artifact_name}' erhalten. Algorithmus wird angestoßen...")
 
-
+        # --- Hier beginnt der eigentliche Algorithmus ---
+        # 1. Graph aus dem Cache holen (zukünftig)
+        # 2. Wenn nicht im Cache oder veraltet, neu aus der DB bauen
+        #    - Hole Haupt-Knoten
+        #    - Hole dessen Abhängigkeiten (Vorgänger/Nachfolger) rekursiv
+        # 3. Graph zurückgeben
 
         graph = nx.DiGraph()
 
@@ -64,10 +69,3 @@ class DataService:
         print(
             f"INFO: Algorithmus abgeschlossen. Graph mit {len(graph.nodes())} Knoten für '{artifact_name}' wurde erstellt.")
         return graph
-
-    # --- Hier beginnt der eigentliche Algorithmus ---
-    # 1. Graph aus dem Cache holen (zukünftig)
-    # 2. Wenn nicht im Cache oder veraltet, neu aus der DB bauen
-    #    - Hole Haupt-Knoten
-    #    - Hole dessen Abhängigkeiten (Vorgänger/Nachfolger) rekursiv
-    # 3. Graph zurückgeben
