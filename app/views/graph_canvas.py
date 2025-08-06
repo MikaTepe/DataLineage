@@ -38,14 +38,12 @@ class GraphCanvas(QGraphicsView):
         self.scene = QGraphicsScene(self)
         self.setScene(self.scene)
 
-        # Standard Drag & Pan von Qt
         self.setDragMode(QGraphicsView.ScrollHandDrag)
-
         self.setTransformationAnchor(QGraphicsView.AnchorUnderMouse)
         self.setRenderHint(QPainter.Antialiasing)
 
-        self.min_scale, self.max_scale = 0.05, 5.0
         self.node_items = {}
+        self._initial_scale = 1.0  # Initialwert für die Skalierung
         self.node_double_clicked.connect(self.show_info_dialog)
 
     def clear_scene(self):
@@ -62,13 +60,10 @@ class GraphCanvas(QGraphicsView):
             self.show_error_message("Layout-Berechnung fehlgeschlagen.")
             return
 
-        SCALE_FACTOR = 3000
-        scaled_pos = {node: (coords[0] * SCALE_FACTOR, coords[1] * SCALE_FACTOR) for node, coords in pos.items()}
-
         for node_id, attrs in G.nodes(data=True):
             node_obj = attrs.get('data')
             if node_obj:
-                x, y = scaled_pos.get(node_id, (0, 0)) # Fallback, falls pos unvollständig
+                x, y = pos.get(node_id, (0, 0))
                 node_item = self.create_node_item(node_obj, x, -y, self.BASE_FONT_SIZE)
                 self.scene.addItem(node_item)
                 self.node_items[node_id] = node_item
@@ -83,34 +78,24 @@ class GraphCanvas(QGraphicsView):
     def create_node_item(self, node_obj: Node, x, y, font_size):
         node_type = node_obj.node_type.upper()
         node_class_map = {
-            "ELT": ELTNode,
-            "TABLE": TableNode,
-            "VIEW": ViewNode,
-            "SCRIPT": ScriptNode,
-            "CTE": CTENode,
+            "ELT": ELTNode, "TABLE": TableNode, "VIEW": ViewNode,
+            "SCRIPT": ScriptNode, "CTE": CTENode,
         }
         NodeClass = node_class_map.get(node_type, UndefinedNode)
-        item = NodeClass(node_obj.id, node_obj.name, x, y, font_size)
-        return item
+        return NodeClass(node_obj.id, node_obj.name, x, y, font_size)
 
     def fit_view(self):
-        """Passt die Ansicht an den Inhalt an und berechnet den initialen Zoom."""
-        if self.scene.items():
-            self.fitInView(self.scene.itemsBoundingRect(), Qt.KeepAspectRatio)
-            self._calculate_min_scale()
-            self._update_node_fonts()
+        """Passt die Ansicht an den Inhalt an und speichert die ideale Skalierung."""
+        if not self.scene.items():
+            return
 
-    def _calculate_min_scale(self):
-        """Berechnet den minimalen Zoomfaktor, sodass der gesamte Graph sichtbar bleibt."""
-        scene_rect = self.scene.itemsBoundingRect()
-        if scene_rect.isNull() or self.viewport() is None or self.viewport().width() == 0:
-            return
-        view_rect = self.viewport().rect()
-        if scene_rect.width() == 0 or scene_rect.height() == 0:
-            return
-        scale_x = view_rect.width() / scene_rect.width()
-        scale_y = view_rect.height() / scene_rect.height()
-        self.min_scale = min(scale_x, scale_y) * 0.95
+        self.fitInView(self.scene.itemsBoundingRect(), Qt.KeepAspectRatio)
+        self.scale(0.95, 0.95)  # Ein kleiner Rand ist angenehmer
+
+        # Speichere die "perfekte" Skalierung als Referenz für die Zoom-Begrenzung.
+        self._initial_scale = self.transform().m11()
+
+        self._update_node_fonts()
 
     def _update_node_fonts(self):
         """Passt die Schriftgröße aller Knoten an die aktuelle Zoom-Stufe an."""
@@ -135,17 +120,19 @@ class GraphCanvas(QGraphicsView):
         if angle == 0:
             return
 
-        zoom_in_factor = 1.05
-        zoom_out_factor = 0.95
-        factor = zoom_in_factor if angle > 0 else zoom_out_factor
-
+        factor = 1.1 if angle > 0 else 1 / 1.1
         current_scale = self.transform().m11()
         new_scale = current_scale * factor
 
-        if new_scale < self.min_scale:
-            factor = self.min_scale / current_scale
-        elif new_scale > self.max_scale:
-            factor = self.max_scale / current_scale
+        # Definiere die untere und obere Zoom-Grenze basierend auf der initialen Skalierung.
+        min_allowed_scale = self._initial_scale / 4.0  # Maximal 4x kleiner als der Graph
+        max_allowed_scale = self._initial_scale * 10.0  # Maximal 10x größer zoomen
+
+        # Wende die Begrenzungen an
+        if new_scale < min_allowed_scale:
+            factor = min_allowed_scale / current_scale
+        elif new_scale > max_allowed_scale:
+            factor = max_allowed_scale / current_scale
 
         self.scale(factor, factor)
         self._update_node_fonts()
@@ -156,7 +143,7 @@ class GraphCanvas(QGraphicsView):
         if isinstance(item, QGraphicsTextItem):
             item = item.parentItem()
 
-        if item and isinstance(item, GraphNodeMixin):
+        if isinstance(item, GraphNodeMixin):
             self.node_double_clicked.emit(item.get_node_id())
         else:
             super().mouseDoubleClickEvent(event)
