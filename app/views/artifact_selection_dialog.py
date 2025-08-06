@@ -1,23 +1,23 @@
 from PyQt5.QtWidgets import (
     QDialog, QComboBox, QFormLayout, QDialogButtonBox,
-    QVBoxLayout, QMessageBox, QCompleter, QCheckBox
+    QVBoxLayout, QMessageBox, QCompleter, QCheckBox, QLabel
 )
 from PyQt5.QtCore import Qt
 
 
 class ArtifactSelectionDialog(QDialog):
-    def __init__(self, cache_data, db_connections, parent=None):
+    def __init__(self, data_service, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Artefakt-Analyse konfigurieren")
-        self.setMinimumSize(500, 200)
+        self.setMinimumSize(500, 250)
 
-        self.cache_data = cache_data or {}
-        self.db_connections = db_connections or {}
+        # Der Dialog erhält eine direkte Referenz auf den DataService
+        self.data_service = data_service
 
         # UI-Elemente
         self.data_source_combo = QComboBox()
-        self.artifact_type_combo = QComboBox()
         self.schema_combo = QComboBox()
+        self.artifact_type_combo = QComboBox()
         self.artifact_combo = QComboBox()
         self.artifact_combo.setEditable(True)
         self.artifact_combo.setInsertPolicy(QComboBox.NoInsert)
@@ -29,11 +29,11 @@ class ArtifactSelectionDialog(QDialog):
 
         # Layout
         form_layout = QFormLayout()
-        form_layout.addRow("Datenquelle:", self.data_source_combo)
-        form_layout.addRow("Artefaktart:", self.artifact_type_combo)
-        form_layout.addRow("Schema:", self.schema_combo)
-        form_layout.addRow("Artefakt:", self.artifact_combo)
-        form_layout.addRow("Optionen:", self.cte_checkbox)
+        form_layout.addRow(QLabel("1. Datenquelle:"), self.data_source_combo)
+        form_layout.addRow(QLabel("2. Schema:"), self.schema_combo)
+        form_layout.addRow(QLabel("3. Artefakt-Typ:"), self.artifact_type_combo)
+        form_layout.addRow(QLabel("4. Artefakt:"), self.artifact_combo)
+        form_layout.addRow(QLabel("Optionen:"), self.cte_checkbox)
         main_layout = QVBoxLayout(self)
         main_layout.addLayout(form_layout)
         main_layout.addWidget(self.button_box)
@@ -42,49 +42,51 @@ class ArtifactSelectionDialog(QDialog):
         self.button_box.accepted.connect(self.validate_and_accept)
         self.button_box.rejected.connect(self.reject)
         self.new_tab_button.clicked.connect(self.new_tab_clicked)
+
+        # Kaskadierende Logik: Jede Änderung löst die nächste Aktualisierung aus
         self.data_source_combo.currentIndexChanged.connect(self.update_schemas)
-        self.artifact_type_combo.currentIndexChanged.connect(self.update_schemas)
-        self.schema_combo.currentIndexChanged.connect(self.update_artifacts)
+        self.schema_combo.currentIndexChanged.connect(self.update_artifact_types)
+        self.artifact_type_combo.currentIndexChanged.connect(self.update_artifacts)
 
         # Initialisierung
-        self.populate_initial_data()
+        self.populate_data_sources()
 
-    def populate_initial_data(self):
-        self.data_source_combo.addItems(self.cache_data.keys())
-        self.artifact_type_combo.addItems(["ELT", "Tabellen", "Views"])
-        self.update_schemas()
+    def populate_data_sources(self):
+        """Füllt die Datenquellen-Combobox mit allen verfügbaren Quellen."""
+        # Korrekter Methodenaufruf am DataService
+        all_sources = self.data_service.get_available_data_sources()
+        self.data_source_combo.addItems(sorted(all_sources))
+        # Die erste Aktualisierung wird durch das Setzen des Index ausgelöst
 
     def update_schemas(self):
+        """Aktualisiert die Schema-Liste basierend auf der ausgewählten Datenquelle."""
         data_source = self.data_source_combo.currentText()
-        if not data_source or data_source not in self.cache_data:
-            return
-
-        all_schemas = list(self.cache_data[data_source].keys())
         self.schema_combo.clear()
-        self.schema_combo.addItems(sorted(all_schemas))
-        self.update_artifacts()
+        if data_source:
+            schemas = self.data_service.get_schemas_for_data_source(data_source)
+            self.schema_combo.addItems(schemas)
+
+    def update_artifact_types(self):
+        """Füllt die Artefakt-Typen. Diese sind für alle Quellen gleich."""
+        self.artifact_type_combo.clear()
+        # Für alle Quellen die gleichen Typen anbieten
+        self.artifact_type_combo.addItems(["TABLE", "VIEW", "ELT"])
 
     def update_artifacts(self):
+        """Aktualisiert die Artefakt-Liste basierend auf Schema und Typ."""
         data_source = self.data_source_combo.currentText()
         schema = self.schema_combo.currentText()
         artifact_type = self.artifact_type_combo.currentText()
 
         self.artifact_combo.clear()
-        items = []
-
-        if not all([data_source, schema, artifact_type]) or data_source not in self.cache_data or schema not in \
-                self.cache_data[data_source]:
+        if not all([data_source, schema, artifact_type]):
             return
 
-        schema_content = self.cache_data[data_source][schema]
-        if artifact_type == "ELT":
-            items = sorted(schema_content.get("unique_artifacts", []))
-        elif artifact_type == "Tabellen":
-            items = sorted([t['table_name'] for t in schema_content.get("unique_tables", [])])
-        elif artifact_type == "Views":
-            items = sorted([v['view_name'] for v in schema_content.get("unique_views", [])])
-
+        # Korrekter Methodenaufruf
+        items = self.data_service.get_artifacts_for_schema(data_source, schema, artifact_type)
         self.artifact_combo.addItems(items)
+
+        # Autocompleter für einfache Suche
         completer = QCompleter(items, self)
         completer.setCaseSensitivity(Qt.CaseInsensitive)
         self.artifact_combo.setCompleter(completer)
@@ -100,10 +102,11 @@ class ArtifactSelectionDialog(QDialog):
         self.accept()
 
     def getSelections(self):
+        """Gibt die finale Auswahl in einer einheitlichen Struktur zurück."""
         return {
             "data_source": self.data_source_combo.currentText(),
-            "artifact_type": self.artifact_type_combo.currentText(),
             "schema": self.schema_combo.currentText(),
+            "artifact_type": self.artifact_type_combo.currentText(),
             "artifact": self.artifact_combo.currentText(),
             "include_ctes": self.cte_checkbox.isChecked(),
             "new_tab": self.new_tab,

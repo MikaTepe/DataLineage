@@ -1,6 +1,6 @@
 import networkx as nx
 from PyQt5.QtWidgets import QGraphicsView, QGraphicsScene, QGraphicsLineItem, QGraphicsTextItem
-from PyQt5.QtGui import QPen, QFont, QPainter
+from PyQt5.QtGui import QPen, QFont, QPainter, QColor
 from PyQt5.QtCore import Qt, QTimer, pyqtSignal
 
 from app.models.node_types import ELTNode, TableNode, ViewNode, ScriptNode, CTENode, UndefinedNode, GraphNodeMixin
@@ -68,7 +68,7 @@ class GraphCanvas(QGraphicsView):
         for node_id, attrs in G.nodes(data=True):
             node_obj = attrs.get('data')
             if node_obj:
-                x, y = scaled_pos[node_id]
+                x, y = scaled_pos.get(node_id, (0, 0)) # Fallback, falls pos unvollständig
                 node_item = self.create_node_item(node_obj, x, -y, self.BASE_FONT_SIZE)
                 self.scene.addItem(node_item)
                 self.node_items[node_id] = node_item
@@ -82,7 +82,13 @@ class GraphCanvas(QGraphicsView):
 
     def create_node_item(self, node_obj: Node, x, y, font_size):
         node_type = node_obj.node_type.upper()
-        node_class_map = {"ELT": ELTNode, "TABLE": TableNode, "VIEW": ViewNode, "SCRIPT": ScriptNode, "CTE": CTENode}
+        node_class_map = {
+            "ELT": ELTNode,
+            "TABLE": TableNode,
+            "VIEW": ViewNode,
+            "SCRIPT": ScriptNode,
+            "CTE": CTENode,
+        }
         NodeClass = node_class_map.get(node_type, UndefinedNode)
         item = NodeClass(node_obj.id, node_obj.name, x, y, font_size)
         return item
@@ -124,13 +130,11 @@ class GraphCanvas(QGraphicsView):
     def wheelEvent(self, event):
         """
         Ermöglicht freies herein- und herauszoomen mit sanften Faktoren.
-        Basiert auf deinem ursprünglichen, bewährten Code.
         """
         angle = event.angleDelta().y()
         if angle == 0:
             return
 
-        # Kleinere Faktoren für ein flüssigeres Gefühl
         zoom_in_factor = 1.05
         zoom_out_factor = 0.95
         factor = zoom_in_factor if angle > 0 else zoom_out_factor
@@ -138,7 +142,6 @@ class GraphCanvas(QGraphicsView):
         current_scale = self.transform().m11()
         new_scale = current_scale * factor
 
-        # Direkte Klemmung auf die Grenzwerte
         if new_scale < self.min_scale:
             factor = self.min_scale / current_scale
         elif new_scale > self.max_scale:

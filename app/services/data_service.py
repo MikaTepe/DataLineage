@@ -1,41 +1,74 @@
 import networkx as nx
-from app.data.test_data import test_cache_data, db_connections_data
 from app.models.node import Node
+from app.data.mock_database import MockDatabase  # Importiert die neue Mock-Datenbank
 
 
 class DataService:
-    """Stellt die Testdaten für den Dialog bereit und baut Graphen."""
+    """
+    Zentraler Service, der den Graphenerzeugungs-Algorithmus anstößt.
+    Er interagiert mit der Datenbankschicht (aktuell MockDatabase).
+    """
 
-    def get_cache_data(self):
-        return test_cache_data
+    def __init__(self):
+        # Instanziiert die Datenbankschnittstelle.
+        # Später kann hier eine echte Datenbankverbindung oder ein Pool verwaltet werden.
+        self.db = MockDatabase()
 
-    def get_db_connections(self):
-        return db_connections_data
+    def get_available_data_sources(self):
+        """Holt die verfügbaren Datenquellen von der Datenbankschnittstelle."""
+        return self.db.get_available_databases()
 
-    def build_graph_for_selection(self, selections: dict) -> nx.DiGraph:
+    def get_schemas_for_data_source(self, data_source: str):
+        """Holt die verfügbaren Schemata für eine gegebene Datenquelle."""
+        return self.db.get_schemas_for_database(data_source)
+
+    def get_artifacts_for_schema(self, data_source: str, schema: str, artifact_type: str):
+        """Holt Artefakte eines bestimmten Typs aus einem Schema."""
+        return self.db.get_artifacts_for_schema(data_source, schema, artifact_type)
+
+    def get_graph_for_artifact(self, selections: dict) -> nx.DiGraph:
         """
-        Baut einen Graphen basierend auf der Auswahl aus dem Dialog.
-        Für dieses Beispiel generieren wir einen repräsentativen Graphen.
+        **Zentraler Endpunkt zur Graphenerzeugung.**
+
+        Diese Methode ist der einzige Einstiegspunkt für die Anforderung eines Graphen.
+        Sie ruft den Algorithmus zur Graphenerstellung auf (derzeit als Mock implementiert).
         """
+        artifact_name = selections.get('artifact')
+        artifact_type = selections.get('artifact_type', 'Undefined')
+
+        print(f"INFO: Graph-Anforderung für '{artifact_name}' erhalten. Algorithmus wird angestoßen...")
+
+        # --- Hier beginnt der eigentliche Algorithmus ---
+        # 1. Graph aus dem Cache holen (zukünftig)
+        # 2. Wenn nicht im Cache oder veraltet, neu aus der DB bauen
+        #    - Hole Haupt-Knoten
+        #    - Hole dessen Abhängigkeiten (Vorgänger/Nachfolger) rekursiv
+        # 3. Graph zurückgeben
+        #
+        # Aktuelle Mock-Implementierung:
         graph = nx.DiGraph()
-        artifact_name = selections['artifact']
+        main_node = Node(id=artifact_name, name=artifact_name, node_type=artifact_type)
+        graph.add_node(main_node.id, data=main_node)
 
-        # Knoten basierend auf der Auswahl erstellen
-        node1 = Node(id=artifact_name, name=artifact_name, node_type=selections['artifact_type'])
-        node2 = Node(id="source_table_1", name="Source Table 1", node_type="TABLE")
-        node3 = Node(id="source_view_1", name="Source View 1", node_type="VIEW")
+        # Simuliere einige Abhängigkeiten basierend auf dem Typ
+        if artifact_type == "VIEW":
+            source_table = Node(id=f"src_table_for_{artifact_name}", name="BASE_TABLE", node_type="TABLE")
+            graph.add_node(source_table.id, data=source_table)
+            graph.add_edge(source_table.id, main_node.id)
 
-        graph.add_node(node1.id, data=node1)
-        graph.add_node(node2.id, data=node2)
-        graph.add_node(node3.id, data=node3)
+        if artifact_type == "ELT":
+            source_table = Node(id=f"src_for_{artifact_name}", name="SOURCE_DATA", node_type="TABLE")
+            target_table = Node(id=f"target_for_{artifact_name}", name="TARGET_TABLE", node_type="TABLE")
+            graph.add_node(source_table.id, data=source_table)
+            graph.add_node(target_table.id, data=target_table)
+            graph.add_edge(source_table.id, main_node.id)
+            graph.add_edge(main_node.id, target_table.id)
 
-        graph.add_edge(node2.id, node3.id)
-        graph.add_edge(node3.id, node1.id)
-
-        # Fülle Vorgänger/Nachfolger für den Info-Dialog
+        # Metadaten für den Info-Dialog anreichern
         for node_id in graph.nodes():
             node_data = graph.nodes[node_id]['data']
             node_data.predecessors = list(graph.predecessors(node_id))
             node_data.successors = list(graph.successors(node_id))
 
+        print(f"INFO: Algorithmus abgeschlossen. Graph für '{artifact_name}' wurde erstellt.")
         return graph

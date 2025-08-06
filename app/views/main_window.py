@@ -1,4 +1,3 @@
-# app/views/main_window.py
 from PyQt5.QtWidgets import QMainWindow, QWidget, QHBoxLayout, QSplitter, QTabWidget
 from PyQt5.QtCore import Qt
 
@@ -37,31 +36,50 @@ class MainWindow(QMainWindow):
         splitter.setCollapsible(0, False)
         main_layout.addWidget(splitter)
 
-        # Initial einen Willkommens-Tab hinzufügen
-        welcome_tab = QWidget()
-        self.tab_widget.addTab(welcome_tab, "Willkommen")
+        # Initial einen Willkommens-Tab hinzufügen.
+        # Ein GraphTab wird als Platzhalter verwendet, damit der Controller existiert.
+        # Alternativ könnte man einen reinen Info-Screen erstellen.
+        initial_tab = GraphTab()
+        self.tab_widget.addTab(initial_tab, "Willkommen")
+
 
     def add_new_tab(self, selections: dict):
-        """Erstellt einen neuen Tab basierend auf den Dialog-Auswahlen."""
+        """Erstellt einen neuen Tab und nutzt die vereinheitlichte Lade-Methode."""
         artifact_name = selections['artifact']
 
-        if selections['new_tab'] is False:
-            # Finde offenen Tab und ersetze ihn
-            current_tab = self.tab_widget.currentWidget()
-            if isinstance(current_tab, GraphTab):
-                self.tab_widget.setTabText(self.tab_widget.currentIndex(), artifact_name)
-                current_tab.controller.load_graph_for_selection(selections)
-                return
+        # Prüfen, ob der aktuelle Tab der "Willkommen"-Tab ist.
+        # Wenn ja, wird dieser wiederverwendet, anstatt einen neuen zu erstellen.
+        current_widget = self.tab_widget.currentWidget()
+        if self.tab_widget.tabText(self.tab_widget.currentIndex()) == "Willkommen" and isinstance(current_widget, GraphTab):
+            self.tab_widget.setTabText(self.tab_widget.currentIndex(), artifact_name)
+            current_widget.controller.load_graph(selections)
+            return
 
-        # Ansonsten neuen Tab erstellen
-        graph_view_tab = GraphTab()
-        index = self.tab_widget.addTab(graph_view_tab, artifact_name)
-        self.tab_widget.setCurrentIndex(index)
-        graph_view_tab.controller.load_graph_for_selection(selections)
+        # Wenn ein neuer Tab explizit gewünscht wird oder kein Willkommen-Tab aktiv ist
+        if selections.get('new_tab', False):
+            graph_view_tab = GraphTab()
+            index = self.tab_widget.addTab(graph_view_tab, artifact_name)
+            self.tab_widget.setCurrentIndex(index)
+            graph_view_tab.controller.load_graph(selections)
+            return
+
+        # Ansonsten den aktuellen Tab wiederverwenden
+        active_tab = self.tab_widget.currentWidget()
+        if isinstance(active_tab, GraphTab):
+            self.tab_widget.setTabText(self.tab_widget.currentIndex(), artifact_name)
+            active_tab.controller.load_graph(selections)
+        else:
+            # Fallback: Wenn der aktive Tab kein Graph-Tab ist, neuen erstellen
+            graph_view_tab = GraphTab()
+            index = self.tab_widget.addTab(graph_view_tab, artifact_name)
+            self.tab_widget.setCurrentIndex(index)
+            graph_view_tab.controller.load_graph(selections)
+
 
     def close_tab(self, index: int):
         """Schließt den Tab am angegebenen Index."""
-        if self.tab_widget.tabText(index) == "Willkommen" and self.tab_widget.count() == 1:
+        # Verhindert das Schließen des letzten Tabs
+        if self.tab_widget.count() == 1:
             return
 
         widget_to_remove = self.tab_widget.widget(index)
