@@ -2,7 +2,7 @@ import networkx as nx
 from app.models.node import Node
 from app.data.mock_database import MockDatabase
 from app.data.test_data import dependencies as graph_dependencies
-
+import re
 
 class DataService:
     """
@@ -29,6 +29,10 @@ class DataService:
         """Holt Artefakte eines bestimmten Typs aus einem Schema."""
         return self.db.get_artifacts_for_schema(data_source, schema, artifact_type)
 
+    def _sanitize_id(self, name: str) -> str:
+        """Erstellt eine saubere, für Graphviz unproblematische ID."""
+        return re.sub(r'[^a-zA-Z0-9_]', '_', name)
+
     def get_graph_for_artifact(self, selections: dict) -> nx.DiGraph:
         """
         Erstellt immer einen Graphen mit drei Knoten (Vorgänger -> Hauptknoten -> Nachfolger),
@@ -38,7 +42,7 @@ class DataService:
         if not artifact_name:
             return nx.DiGraph()
 
-        print(f"INFO: Graph-Anforderung für '{artifact_name}' erhalten. Algorithmus wird gestartet...")
+        print(f"INFO: Graph-Anforderung für '{artifact_name}' erhalten. Starte Algorithmus mit sauberen IDs...")
 
         # Cache-Prüfung
         if artifact_name in self._graph_cache:
@@ -49,81 +53,68 @@ class DataService:
         nodes_to_process = [artifact_name]
         processed_nodes = set()
 
-        # Rekursive Funktion zum Hinzufügen von Knoten und Kanten
-        def add_related_nodes(node_name, direction):
-            if node_name not in graph_dependencies:
-                return
-
-            if direction == 'predecessors':
-                # Inputs/Vorgänger holen
-                related = graph_dependencies[node_name]
-                if isinstance(related, dict):
-                    related = related.get('inputs', [])
-            else:  # successors
-                # Outputs/Nachfolger holen
-                related = graph_dependencies[node_name]
-                if isinstance(related, dict):
-                    related = related.get('outputs', [])
-                else:  # Wenn es eine View ist, die nur inputs hat
-                    related = []
-
-            for rel_node in related:
-                # Kante hinzufügen
-                if direction == 'predecessors':
-                    graph.add_edge(rel_node, node_name)
-                else:
-                    graph.add_edge(node_name, rel_node)
-
-                # Den verbundenen Knoten zur weiteren Verarbeitung hinzufügen
-                if rel_node not in processed_nodes:
-                    nodes_to_process.append(rel_node)
-
         while nodes_to_process:
-            current_node_name = nodes_to_process.pop(0)
-            if current_node_name in processed_nodes:
+            current_real_name = nodes_to_process.pop(0)
+            if current_real_name in processed_nodes:
                 continue
+            processed_nodes.add(current_real_name)
 
-            processed_nodes.add(current_node_name)
+            current_clean_id = self._sanitize_id(current_real_name)
 
-            # Füge Vorgänger hinzu
-            add_related_nodes(current_node_name, 'predecessors')
-            # Füge Nachfolger hinzu
-            add_related_nodes(current_node_name, 'successors')
+            # --- Vorgänger finden (Upstream) ---
+            if current_real_name in graph_dependencies:
+                details = graph_dependencies[current_real_name]
+                inputs = details.get('inputs', []) if isinstance(details, dict) else (details if isinstance(details, list) else [])
+                for upstream_real_name in inputs:
+                    upstream_clean_id = self._sanitize_id(upstream_real_name)
+                    graph.add_edge(upstream_clean_id, current_clean_id)
+                    if upstream_real_name not in processed_nodes:
+                        nodes_to_process.append(upstream_real_name)
 
-            # Finde alle Knoten, die den aktuellen Knoten als Input verwenden (Nachfolger)
-            for potential_successor, details in graph_dependencies.items():
-                inputs = []
-                if isinstance(details, list):
-                    inputs = details
-                elif isinstance(details, dict):
-                    inputs = details.get('inputs', [])
+            for process, details in graph_dependencies.items():
+                outputs = details.get('outputs', []) if isinstance(details, dict) else []
+                if current_real_name in outputs:
+                    process_clean_id = self._sanitize_id(process)
+                    graph.add_edge(process_clean_id, current_clean_id)
+                    if process not in processed_nodes:
+                        nodes_to_process.append(process)
 
-                if current_node_name in inputs:
-                    graph.add_edge(current_node_name, potential_successor)
-                    if potential_successor not in processed_nodes:
-                        nodes_to_process.append(potential_successor)
+            # --- Nachfolger finden (Downstream) ---
+            for downstream_real_name, details in graph_dependencies.items():
+                inputs = details.get('inputs', []) if isinstance(details, dict) else (details if isinstance(details, list) else [])
+                if current_real_name in inputs:
+                    downstream_clean_id = self._sanitize_id(downstream_real_name)
+                    graph.add_edge(current_clean_id, downstream_clean_id)
+                    if downstream_real_name not in processed_nodes:
+                        nodes_to_process.append(downstream_real_name)
 
-        # Alle Knoten im Graphen mit Metadaten anreichern
-        for node_id in list(graph.nodes()):
-            # Falls ein Knoten noch nicht als "data" Attribut existiert
-            if 'data' not in graph.nodes[node_id]:
-                # Annahme des Typs basierend auf dem Namen
-                node_type = "TABLE"
-                if node_id.startswith("V_"):
-                    node_type = "VIEW"
-                elif node_id.startswith("ELT_"):
-                    node_type = "ELT"
+        # Metadaten für alle Knoten im Graphen hinzufügen/aktualisieren
+        for clean_id in list(graph.nodes()):
+            # Finde den ursprünglichen, "echten" Namen für den aktuellen sauberen Schlüssel
+            # Dies ist eine umgekehrte Suche, die sicherstellt, dass wir den korrekten Namen für die Metadaten haben
+            original_name = ""
+            for name in processed_nodes:
+                if self._sanitize_id(name) == clean_id:
+                    original_name = name
+                    break
 
-                node_obj = Node(id=node_id, name=node_id, node_type=node_type)
-                graph.nodes[node_id]['data'] = node_obj
+            node_type = "TABLE"
+            if "V_" in original_name or "VIEW" in original_name: node_type = "VIEW"
+            elif "ELT_" in original_name: node_type = "ELT"
 
-            # Vorgänger und Nachfolger aktualisieren
-            node_data = graph.nodes[node_id]['data']
-            node_data.predecessors = list(graph.predecessors(node_id))
-            node_data.successors = list(graph.successors(node_id))
+            # KORREKTUR: Das Node-Objekt verwendet jetzt die saubere ID als primäre ID
+            node_obj = Node(
+                id=clean_id,
+                name=original_name.split('.')[-1],
+                node_type=node_type,
+                context=original_name # Der volle, "echte" Name wird als Kontext gespeichert
+            )
+            graph.nodes[clean_id]['data'] = node_obj
+            # Die Listen der Vorgänger/Nachfolger müssen auch die sauberen IDs enthalten
+            graph.nodes[clean_id]['data'].predecessors = [self._sanitize_id(p) for p in graph.predecessors(clean_id)]
+            graph.nodes[clean_id]['data'].successors = [self._sanitize_id(s) for s in graph.successors(clean_id)]
 
-        print(
-            f"INFO: Algorithmus abgeschlossen. Graph mit {len(graph.nodes())} Knoten und {len(graph.edges())} Kanten für '{artifact_name}' wurde erstellt.")
+        print(f"INFO: Algorithmus abgeschlossen. Graph mit {len(graph.nodes())} Knoten und {len(graph.edges())} Kanten für '{artifact_name}' wurde erstellt.")
 
         self._graph_cache[artifact_name] = graph
         return graph

@@ -1,4 +1,5 @@
 import networkx as nx
+from typing import Optional
 
 
 class GraphAnalysisService:
@@ -15,7 +16,7 @@ class GraphAnalysisService:
             raise TypeError("Ein networkx.DiGraph wird als Graph-Objekt erwartet.")
         self.graph = graph
 
-    def find_node_by_name(self, query: str) -> str | None:
+    def find_node_by_name(self, query: str) -> Optional[str]:
         """
         Findet den ersten Knoten, dessen Name die Suchanfrage enthält (case-insensitive).
         """
@@ -23,9 +24,11 @@ class GraphAnalysisService:
             return None
 
         for node_id, node_data in self.graph.nodes(data=True):
-            node_name = node_data.get('data', {}).get('name', '')
-            if query.lower() in node_name.lower():
-                return node_id
+            node_obj = node_data.get('data')
+            if node_obj:
+                node_name = getattr(node_obj, 'name', '')
+                if query.lower() in node_name.lower():
+                    return node_id
         return None
 
     def get_all_predecessors(self, start_node: str) -> set:

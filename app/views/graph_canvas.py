@@ -1,5 +1,6 @@
 import networkx as nx
-from PyQt5.QtWidgets import QGraphicsView, QGraphicsScene, QGraphicsLineItem, QGraphicsTextItem, QFileDialog
+from PyQt5.QtWidgets import QGraphicsView, QGraphicsScene, QGraphicsLineItem, QGraphicsTextItem, QFileDialog, \
+    QApplication
 from PyQt5.QtGui import QPen, QFont, QPainter, QColor, QImage
 from PyQt5.QtCore import Qt, QTimer, pyqtSignal, QPointF, QRectF
 
@@ -55,7 +56,7 @@ class GraphCanvas(QGraphicsView):
     def __init__(self, model, parent=None, interaction_mode='highlight'):
         super().__init__(parent)
         self.model = model
-        self.interaction_mode = interaction_mode  # 'highlight' oder 'fade'
+        self.interaction_mode = interaction_mode
 
         self.scene = QGraphicsScene(self)
         self.setScene(self.scene)
@@ -86,23 +87,25 @@ class GraphCanvas(QGraphicsView):
             self.show_error_message("Layout-Berechnung fehlgeschlagen.")
             return
 
-        for node_id, attrs in G.nodes(data=True):
+        # KORREKTUR: Der Schlüssel ist jetzt die saubere ID aus dem Graphen
+        for clean_id, attrs in G.nodes(data=True):
             node_obj = attrs.get('data')
             if node_obj:
-                x, y = pos.get(node_id, (0, 0))
+                x, y = pos.get(clean_id, (0, 0))
                 node_item = self.create_node_item(node_obj, x, -y, self.BASE_FONT_SIZE)
                 self.scene.addItem(node_item)
-                self.node_items[node_id] = node_item
+                self.node_items[clean_id] = node_item
 
-        for source, target in G.edges():
-            s_item, t_item = self.node_items.get(source), self.node_items.get(target)
+        for source_clean_id, target_clean_id in G.edges():
+            s_item = self.node_items.get(source_clean_id)
+            t_item = self.node_items.get(target_clean_id)
             if s_item and t_item:
                 edge = EdgeLine(s_item, t_item)
                 self.scene.addItem(edge)
                 self.edge_items.append(edge)
 
         QTimer.singleShot(0, self.fit_view)
-
+        
     def update_all_edge_positions(self):
         """Forces an update on all edge items in the scene."""
         for edge in self.edge_items:
@@ -163,8 +166,8 @@ class GraphCanvas(QGraphicsView):
         factor = 1.1 if angle > 0 else 1 / 1.1
         current_scale = self.transform().m11()
         new_scale = current_scale * factor
-        min_allowed_scale = self._initial_scale / 4.0
-        max_allowed_scale = self._initial_scale * 10.0
+        min_allowed_scale = self._initial_scale / 1.5
+        max_allowed_scale = self._initial_scale * 5.0
         if new_scale < min_allowed_scale:
             factor = min_allowed_scale / current_scale
         elif new_scale > max_allowed_scale:
@@ -209,7 +212,7 @@ class GraphCanvas(QGraphicsView):
         node_attrs = self.model.graph.nodes.get(node_id)
         if not node_attrs or 'data' not in node_attrs: return
         node_obj: Node = node_attrs['data']
-        info = {"Name": node_obj.name, "ID": node_obj.id, "Typ": node_obj.node_type, "Kontext": node_obj.context,
+        info = {"Name": node_obj.name, "ID": node_obj.context, "Typ": node_obj.node_type,
                 "Besitzer": node_obj.owner, "Beschreibung": node_obj.description,
                 "Vorgänger": node_obj.predecessors if node_obj.predecessors else "Keine",
                 "Nachfolger": node_obj.successors if node_obj.successors else "Keine", }
