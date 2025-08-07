@@ -1,6 +1,7 @@
 from PyQt5.QtWidgets import QWidget, QVBoxLayout, QPushButton, QLabel, QFrame, QHBoxLayout, QLineEdit
 from app.views.artifact_selection_dialog import ArtifactSelectionDialog
 from app.services.data_service import DataService
+from app.views.export_preview_dialog import ExportPreviewDialog
 
 
 class ControlsPanel(QWidget):
@@ -21,21 +22,20 @@ class ControlsPanel(QWidget):
         main_layout.addWidget(selection_label)
         main_layout.addWidget(self.select_artifact_button)
 
-        line1 = QFrame()
-        line1.setFrameShape(QFrame.HLine)
-        line1.setFrameShadow(QFrame.Sunken)
-        main_layout.addWidget(line1)
-
         # --- Suchfunktion UI ---
         search_label = QLabel("Knoten suchen:")
         search_label.setStyleSheet("font-weight: bold; padding-top: 10px;")
         self.search_input = QLineEdit()
-        self.search_input.setPlaceholderText("Namensteil eingeben...")
+        self.search_input.setPlaceholderText("Artefakt eingeben...")
         self.search_button = QPushButton("Suchen")
 
         main_layout.addWidget(search_label)
         main_layout.addWidget(self.search_input)
         main_layout.addWidget(self.search_button)
+
+        # --- Export-Funktion UI ---
+        self.export_button = QPushButton("Graph exportieren")
+        main_layout.addWidget(self.export_button)
 
         line2 = QFrame()
         line2.setFrameShape(QFrame.HLine)
@@ -72,8 +72,8 @@ class ControlsPanel(QWidget):
         # --- Verbindungen ---
         self.select_artifact_button.clicked.connect(self.open_artifact_dialog)
         self.search_button.clicked.connect(self.search_node)
-        # Verbinde die Enter-Taste im Suchfeld mit der Suchfunktion
         self.search_input.returnPressed.connect(self.search_node)
+        self.export_button.clicked.connect(self.export_current_graph)
 
         self.main_window.tab_widget.currentChanged.connect(self.connect_highlighting_clear_signal)
         self.connect_highlighting_clear_signal()
@@ -91,6 +91,18 @@ class ControlsPanel(QWidget):
         current_tab = self.main_window.tab_widget.currentWidget()
         if hasattr(current_tab, 'controller'):
             current_tab.controller.search_and_highlight_node(search_term)
+
+    def export_current_graph(self):
+        """Öffnet den Export-Vorschau-Dialog für den aktuellen Graphen."""
+        current_tab = self.main_window.tab_widget.currentWidget()
+
+        if hasattr(current_tab, 'get_graph_data_for_export'):
+            graph, pos = current_tab.get_graph_data_for_export()
+
+            if graph and graph.nodes and pos:
+                # Erstellt und öffnet den neuen Dialog mit den Graphendaten
+                dialog = ExportPreviewDialog(graph, pos, self)
+                dialog.exec_()
 
     def connect_highlighting_clear_signal(self):
         """Verbindet das Signal des aktuellen Canvas mit dem Leeren des Suchfeldes."""

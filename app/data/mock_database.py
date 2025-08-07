@@ -1,5 +1,4 @@
-import networkx as nx
-from app.models.node import Node
+from app.data.test_data import test_cache_data
 
 class MockDatabase:
     """
@@ -8,29 +7,8 @@ class MockDatabase:
     Datenbankimplementierungen (z.B. Exasol).
     """
     def __init__(self):
-        # Diese Daten simulieren den Inhalt von zwei verschiedenen Datenbanken.
-        # Jede zukünftige Datenbank-Implementierung sollte diese Struktur bereitstellen.
-        self._mock_data = {
-            "PROD_DB": {
-                "DWH_CORE": {
-                    "TABLE": ["F_SALES", "D_CUSTOMER"],
-                    "VIEW": ["V_SALES_AGGREGATED"],
-                    "ELT": []
-                },
-                "REPORTING": {
-                    "TABLE": [],
-                    "VIEW": ["V_CEO_DASHBOARD"],
-                    "ELT": ["ELT_LOAD_REPORTS"]
-                }
-            },
-            "DEV_DB": {
-                "SANDBOX_MIKA": {
-                    "TABLE": ["TEMP_ANALYSIS"],
-                    "VIEW": [],
-                    "ELT": ["MIKA_FEATURE_TEST"]
-                }
-            }
-        }
+        # Nutzt die importierten, komplexen Daten
+        self._mock_data = test_cache_data
 
     def get_available_databases(self):
         """Gibt die Namen der simulierten Datenbanken zurück."""

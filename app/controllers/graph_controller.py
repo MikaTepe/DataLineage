@@ -1,6 +1,7 @@
 from PyQt5.QtCore import QObject
 from app.services.data_service import DataService
 from app.models.graph_model import GraphModel
+from app.services.graph_analysis_service import GraphAnalysisService
 
 class GraphController(QObject):
     """
@@ -52,6 +53,22 @@ class GraphController(QObject):
             self.canvas.zoom_to_node(found_node_id)
         else:
             self.canvas.clear_highlighting()
+
+    def highlight_predecessors(self, node_id: str):
+        """
+        Hebt den angeklickten Knoten und alle seine Vorgänger hervor.
+        """
+        if not self.model.graph or not node_id:
+            return
+
+        # Erstellt eine Instanz des Analyse-Service mit dem aktuellen Graphen
+        analysis_service = GraphAnalysisService(self.model.graph)
+
+        # Holt alle Vorgänger, inklusive des Startknotens
+        predecessor_nodes = analysis_service.get_all_predecessors(node_id)
+
+        # Beauftragt den Canvas, die Knoten hervorzuheben
+        self.canvas.highlight_nodes(list(predecessor_nodes))
 
     def clear_node_highlighting(self):
         """Beauftragt den Canvas, nur die Hervorhebungen zu entfernen."""

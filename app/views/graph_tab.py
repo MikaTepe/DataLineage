@@ -21,6 +21,7 @@ class GraphTab(QWidget):
         self.canvas = GraphCanvas(self.model)
         # Der Controller benötigt eine Referenz auf den Canvas, um die Hervorhebung zu steuern
         self.controller = GraphController(self.model, self.canvas)
+        self.pos = None  # Initialisierung für die Layout-Positionen
 
         # Layout für den Tab
         layout = QVBoxLayout(self)
@@ -30,6 +31,7 @@ class GraphTab(QWidget):
         # Verbindungen innerhalb des Tabs
         self.model.model_updated.connect(self.draw_graph)
         self.model.error_occurred.connect(self.canvas.show_error_message)
+        self.canvas.node_clicked.connect(self.controller.highlight_predecessors)
 
     def draw_graph(self):
         """Zeichnet den Graphen für diesen spezifischen Tab."""
@@ -37,5 +39,12 @@ class GraphTab(QWidget):
             self.canvas.clear_scene()
             return
 
-        pos = self.layout_service.calculate_layout(self.model.graph)
-        self.canvas.draw_graph(self.model.graph, pos)
+        # Die Positionen werden berechnet und für den Export zwischengespeichert
+        self.pos = self.layout_service.calculate_layout(self.model.graph)
+        self.canvas.draw_graph(self.model.graph, self.pos)
+
+    def get_graph_data_for_export(self):
+        """Gibt die Daten zurück, die für die Export-Vorschau benötigt werden."""
+        if self.pos and self.model.graph:
+            return self.model.graph, self.pos
+        return None, None

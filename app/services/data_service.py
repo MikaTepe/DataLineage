@@ -1,17 +1,21 @@
 import networkx as nx
 from app.models.node import Node
 from app.data.mock_database import MockDatabase
+from app.data.test_data import dependencies as graph_dependencies
 
 
 class DataService:
     """
     Zentraler Service, der den Graphenerzeugungs-Algorithmus anstößt.
-    Er interagiert mit der Datenbankschicht (aktuell MockDatabase).
+    Er interagiert mit der Datenbankschicht (MockDatabase) für Metadaten
+    und nutzt die 'dependencies' für den Graphenbau.
     """
 
     def __init__(self):
         # Instanziiert die Datenbankschnittstelle.
         self.db = MockDatabase()
+        # Hält den Graphen im Cache, um wiederholtes Bauen zu vermeiden
+        self._graph_cache = {}
 
     def get_available_data_sources(self):
         """Holt die verfügbaren Datenquellen von der Datenbankschnittstelle."""
@@ -27,45 +31,99 @@ class DataService:
 
     def get_graph_for_artifact(self, selections: dict) -> nx.DiGraph:
         """
-        **Minimal geänderte Mock-Implementierung.**
         Erstellt immer einen Graphen mit drei Knoten (Vorgänger -> Hauptknoten -> Nachfolger),
         um das Layout mit mehreren Knoten zu testen.
         """
         artifact_name = selections.get('artifact')
-        artifact_type = selections.get('artifact_type', 'Undefined')
+        if not artifact_name:
+            return nx.DiGraph()
 
-        print(f"INFO: Graph-Anforderung für '{artifact_name}' erhalten. Algorithmus wird angestoßen...")
+        print(f"INFO: Graph-Anforderung für '{artifact_name}' erhalten. Algorithmus wird gestartet...")
 
-        # --- Hier beginnt der eigentliche Algorithmus ---
-        # 1. Graph aus dem Cache holen (zukünftig)
-        # 2. Wenn nicht im Cache oder veraltet, neu aus der DB bauen
-        #    - Hole Haupt-Knoten
-        #    - Hole dessen Abhängigkeiten (Vorgänger/Nachfolger) rekursiv
-        # 3. Graph zurückgeben
+        # Cache-Prüfung
+        if artifact_name in self._graph_cache:
+            print(f"INFO: Graph für '{artifact_name}' aus dem Cache geladen.")
+            return self._graph_cache[artifact_name]
 
         graph = nx.DiGraph()
+        nodes_to_process = [artifact_name]
+        processed_nodes = set()
 
-        # 1. Hauptknoten erstellen
-        main_node = Node(id=artifact_name, name=artifact_name, node_type=artifact_type)
-        graph.add_node(main_node.id, data=main_node)
+        # Rekursive Funktion zum Hinzufügen von Knoten und Kanten
+        def add_related_nodes(node_name, direction):
+            if node_name not in graph_dependencies:
+                return
 
-        # 2. Immer einen Vorgänger und einen Nachfolger hinzufügen
-        source_node = Node(id=f"source_for_{artifact_name}", name="Beispiel-Quelle", node_type="TABLE")
-        target_node = Node(id=f"target_for_{artifact_name}", name="Beispiel-Ziel", node_type="VIEW")
+            if direction == 'predecessors':
+                # Inputs/Vorgänger holen
+                related = graph_dependencies[node_name]
+                if isinstance(related, dict):
+                    related = related.get('inputs', [])
+            else:  # successors
+                # Outputs/Nachfolger holen
+                related = graph_dependencies[node_name]
+                if isinstance(related, dict):
+                    related = related.get('outputs', [])
+                else:  # Wenn es eine View ist, die nur inputs hat
+                    related = []
 
-        graph.add_node(source_node.id, data=source_node)
-        graph.add_node(target_node.id, data=target_node)
+            for rel_node in related:
+                # Kante hinzufügen
+                if direction == 'predecessors':
+                    graph.add_edge(rel_node, node_name)
+                else:
+                    graph.add_edge(node_name, rel_node)
 
-        # Kanten hinzufügen
-        graph.add_edge(source_node.id, main_node.id)
-        graph.add_edge(main_node.id, target_node.id)
+                # Den verbundenen Knoten zur weiteren Verarbeitung hinzufügen
+                if rel_node not in processed_nodes:
+                    nodes_to_process.append(rel_node)
 
-        # Metadaten für den Info-Dialog anreichern
-        for node_id in graph.nodes():
+        while nodes_to_process:
+            current_node_name = nodes_to_process.pop(0)
+            if current_node_name in processed_nodes:
+                continue
+
+            processed_nodes.add(current_node_name)
+
+            # Füge Vorgänger hinzu
+            add_related_nodes(current_node_name, 'predecessors')
+            # Füge Nachfolger hinzu
+            add_related_nodes(current_node_name, 'successors')
+
+            # Finde alle Knoten, die den aktuellen Knoten als Input verwenden (Nachfolger)
+            for potential_successor, details in graph_dependencies.items():
+                inputs = []
+                if isinstance(details, list):
+                    inputs = details
+                elif isinstance(details, dict):
+                    inputs = details.get('inputs', [])
+
+                if current_node_name in inputs:
+                    graph.add_edge(current_node_name, potential_successor)
+                    if potential_successor not in processed_nodes:
+                        nodes_to_process.append(potential_successor)
+
+        # Alle Knoten im Graphen mit Metadaten anreichern
+        for node_id in list(graph.nodes()):
+            # Falls ein Knoten noch nicht als "data" Attribut existiert
+            if 'data' not in graph.nodes[node_id]:
+                # Annahme des Typs basierend auf dem Namen
+                node_type = "TABLE"
+                if node_id.startswith("V_"):
+                    node_type = "VIEW"
+                elif node_id.startswith("ELT_"):
+                    node_type = "ELT"
+
+                node_obj = Node(id=node_id, name=node_id, node_type=node_type)
+                graph.nodes[node_id]['data'] = node_obj
+
+            # Vorgänger und Nachfolger aktualisieren
             node_data = graph.nodes[node_id]['data']
             node_data.predecessors = list(graph.predecessors(node_id))
             node_data.successors = list(graph.successors(node_id))
 
         print(
-            f"INFO: Algorithmus abgeschlossen. Graph mit {len(graph.nodes())} Knoten für '{artifact_name}' wurde erstellt.")
+            f"INFO: Algorithmus abgeschlossen. Graph mit {len(graph.nodes())} Knoten und {len(graph.edges())} Kanten für '{artifact_name}' wurde erstellt.")
+
+        self._graph_cache[artifact_name] = graph
         return graph

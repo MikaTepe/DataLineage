@@ -23,15 +23,29 @@ class BaseNode(GraphNodeMixin, QGraphicsRectItem):
         super().__init__(node_id, 0, 0, 0, 0)
 
         self.setPos(x, y)
-        self.setBrush(QBrush(color))
         self.setPen(QPen(Qt.black, 1))
         self.setFlag(QGraphicsRectItem.ItemIsMovable)
         self.setFlag(QGraphicsRectItem.ItemSendsGeometryChanges)
 
+        # Zustand und Farbe VOR der ersten Verwendung initialisieren
+        self.is_faded = False
+        self.original_brush = QBrush(color)
+        self.setBrush(self.original_brush)
+
         # Text-Item erstellen und Schriftart setzen
         self.text = QGraphicsTextItem(label, self)
         self.text.setDefaultTextColor(Qt.black)
-        self.set_font_size(font_size)  # Dies passt auch die Rechteckgröße an
+
+        # Jetzt die Größe anpassen
+        self.set_font_size(font_size)
+
+    def set_faded(self, faded: bool):
+        """Setzt den Knoten auf verblasst oder normal."""
+        self.is_faded = faded
+        opacity = 0.3 if faded else 1.0
+
+        self.setOpacity(opacity)
+        self.text.setOpacity(opacity)
 
     def set_font_size(self, font_size):
         """Aktualisiert die Schriftgröße und passt die Größe des Knotens an."""
@@ -40,8 +54,8 @@ class BaseNode(GraphNodeMixin, QGraphicsRectItem):
 
         # Rechteckgröße basierend auf Textgröße neu berechnen
         text_rect = self.text.boundingRect()
-        rect_width = text_rect.width() + 20  # 10px Rand links und rechts
-        rect_height = text_rect.height() + 10  # 5px Rand oben und unten
+        rect_width = text_rect.width() + 20
+        rect_height = text_rect.height() + 10
 
         # Setzt die neue Rechteckgröße und zentriert den Knoten um seinen Ankerpunkt (0,0)
         self.setRect(-rect_width / 2, -rect_height / 2, rect_width, rect_height)
