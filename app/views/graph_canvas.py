@@ -77,9 +77,31 @@ class GraphCanvas(QGraphicsView):
         self.node_items = {}
         self.edge_items = []
 
-    def show_error_message(self, message: str):
+    def show_loading_message(self, message: str):
+        """Zeigt eine zentrierte Lade-Nachricht auf der Canvas an."""
         self.clear_scene()
-        self.scene.addText(message, QFont("Arial", 12)).setDefaultTextColor(Qt.red)
+        text_item = self.scene.addText(message, QFont("Arial", 16))
+        text_item.setDefaultTextColor(Qt.gray)
+        # Zentrierung des Textes im sichtbaren Bereich
+        view_rect = self.viewport().rect()
+        scene_rect = self.mapToScene(view_rect).boundingRect()
+        text_rect = text_item.boundingRect()
+        center_x = scene_rect.x() + (scene_rect.width() - text_rect.width()) / 2
+        center_y = scene_rect.y() + (scene_rect.height() - text_rect.height()) / 2
+        text_item.setPos(center_x, center_y)
+
+    def show_error_message(self, message: str):
+        """Zeigt eine zentrierte Fehler-Nachricht an."""
+        self.clear_scene()
+        text_item = self.scene.addText(message, QFont("Arial", 12))
+        text_item.setDefaultTextColor(Qt.red)
+        # Zentrierung
+        view_rect = self.viewport().rect()
+        scene_rect = self.mapToScene(view_rect).boundingRect()
+        text_rect = text_item.boundingRect()
+        center_x = scene_rect.x() + (scene_rect.width() - text_rect.width()) / 2
+        center_y = scene_rect.y() + (scene_rect.height() - text_rect.height()) / 2
+        text_item.setPos(center_x, center_y)
 
     def draw_graph(self, G: nx.DiGraph, pos: dict):
         self.clear_scene()
@@ -87,7 +109,6 @@ class GraphCanvas(QGraphicsView):
             self.show_error_message("Layout-Berechnung fehlgeschlagen.")
             return
 
-        # KORREKTUR: Der Schlüssel ist jetzt die saubere ID aus dem Graphen
         for clean_id, attrs in G.nodes(data=True):
             node_obj = attrs.get('data')
             if node_obj:
@@ -175,10 +196,8 @@ class GraphCanvas(QGraphicsView):
         self.scale(factor, factor)
 
     def mouseReleaseEvent(self, event):
-        # Prüfen, ob es sich um einen Klick (kein Ziehen) handelt
         if (event.pos() - self._mouse_press_pos).manhattanLength() < 3:
             item = self.itemAt(event.pos())
-            # Falls auf den Text geklickt wurde, zum übergeordneten Knoten wechseln
             if isinstance(item, QGraphicsTextItem): item = item.parentItem()
 
             if isinstance(item, GraphNodeMixin):

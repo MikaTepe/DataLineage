@@ -11,7 +11,6 @@ class ArtifactSelectionDialog(QDialog):
         self.setWindowTitle("Artefakt-Analyse konfigurieren")
         self.setMinimumSize(500, 250)
 
-        # Der Dialog erhält eine direkte Referenz auf den DataService
         self.data_service = data_service
 
         # UI-Elemente
@@ -53,7 +52,6 @@ class ArtifactSelectionDialog(QDialog):
 
     def populate_data_sources(self):
         """Füllt die Datenquellen-Combobox mit allen verfügbaren Quellen."""
-        # Korrekter Methodenaufruf am DataService
         all_sources = self.data_service.get_available_data_sources()
         self.data_source_combo.addItems(sorted(all_sources))
         # Die erste Aktualisierung wird durch das Setzen des Index ausgelöst
@@ -86,7 +84,6 @@ class ArtifactSelectionDialog(QDialog):
         items = self.data_service.get_artifacts_for_schema(data_source, schema, artifact_type)
         self.artifact_combo.addItems(items)
 
-        # Autocompleter für einfache Suche
         completer = QCompleter(items, self)
         completer.setCaseSensitivity(Qt.CaseInsensitive)
         self.artifact_combo.setCompleter(completer)
@@ -101,13 +98,26 @@ class ArtifactSelectionDialog(QDialog):
             return
         self.accept()
 
-    def getSelections(self):
-        """Gibt die finale Auswahl in einer einheitlichen Struktur zurück."""
+    def getSelections(self) -> dict:
+        """
+        Gibt die finale Auswahl zurück. Baut den vollqualifizierten
+        Artefaktnamen für die Backend-Logik zusammen.
+        """
+        schema = self.schema_combo.currentText()
+        artifact = self.artifact_combo.currentText()
+
+        # Baut den Namen zusammen, den der MockGraphBuilder erwartet
+        fully_qualified_artifact = f"{schema}.{artifact}" if schema and artifact else artifact
+
+        # Für ELT-Prozesse ist der Name oft schon im Schema-Kontext
+        if self.artifact_type_combo.currentText() == "ELT":
+            fully_qualified_artifact = f"{schema}.{artifact}"
+
         return {
             "data_source": self.data_source_combo.currentText(),
-            "schema": self.schema_combo.currentText(),
+            "schema": schema,
             "artifact_type": self.artifact_type_combo.currentText(),
-            "artifact": self.artifact_combo.currentText(),
+            "artifact": fully_qualified_artifact,  # Übergibt den korrekten Namen
             "include_ctes": self.cte_checkbox.isChecked(),
             "new_tab": self.new_tab,
         }
